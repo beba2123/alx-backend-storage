@@ -1,32 +1,43 @@
 #!/usr/bin/env python3
-"""Implementing an expiring web cache and tracker"""
+""" exercise module """
+
+from functools import wraps
+from typing import Callable
+
 import redis
 import requests
-from typing import Callable
-from functools import wraps
+from requests import Response
+
+_redis = redis.Redis(host='localhost', port=6379, db=0)
 
 
-def access(method: Callable) -> Callable:
-    """decorator for get_page"""
+def counter(method: Callable) -> Callable:
+    """
+    a counter decorator that counts how many times a particular URL was
+    accessed. The value is cached in Redis and will expire after 10 seconds
+    """
+
     @wraps(method)
-    def count(url: str) -> str:
-        """track how many times a particular URL was accessed"""
-        redis_client = redis.Redis()
-        redis_client.incr(f'count:{url}')
-        cached = redis_client.get(f'cached:{url}')
-        if cached:
-            return cached.decode('utf-8')
-        res = method(url)
-        redis_client.setex(f'cached:{url}', 10, res)
-        return res
-    return count
+    def wrapper(*args, **kwargs):
+        """
+        wrapper function
+        """
+        _redis.incr(f"count:{args[0]}")
+
+        html = _redis.get("html-cache:{args[0]}")
+        if html is not None:
+            return html.decode("utf-8")
+        html = method(*args, **kwargs)
+        _redis.setex(f"html-cache:{args[0]}", 10, html)
+        return html
+
+    return wrapper
 
 
-@access
+@counter
 def get_page(url: str) -> str:
-    """send request to url"""
-    return requests.get(url).text
-
-
-if __name__ == '__main__':
-    get_page('http://google.com')
+    """
+    a function that returns the HTML content of a particular URL
+    """
+    response: Response = requests.get(url)
+    return response.text
